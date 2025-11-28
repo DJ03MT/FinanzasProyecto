@@ -1,23 +1,17 @@
-// src/types/finance.ts
-
 export interface FinancialRecord {
     id: string;
-    accountName: string; // Ej: "Caja y Bancos"
-    value: number;       // Ej: 15000.00
-    year: number;        // Ej: 2023
+    accountName: string;
+    value: number;
+    year: number;
     type: 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
-    subType?: 'current' | 'non-current'; // Corriente o No Corriente
 }
 
-export interface BalanceSheet {
-    year: number;
-    assets: FinancialRecord[];
-    liabilities: FinancialRecord[];
-    equity: FinancialRecord[];
-}
-
-export interface IncomeStatement {
-    year: number;
-    revenues: FinancialRecord[];
-    expenses: FinancialRecord[];
+// Aquí definimos la estructura completa que devuelve Python
+export interface AnalysisResult {
+    ratios: any[];
+    flujo_efectivo: any[];
+    vertical: any[];
+    horizontal: any[];
+    conclusion: string;
+    financial_statements: any; // <--- Agregamos este campo vital
 }
