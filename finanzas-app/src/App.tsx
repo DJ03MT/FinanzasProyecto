@@ -14,7 +14,7 @@ function App() {
         {/* Sidebar Lateral */}
         <aside className="w-64 bg-slate-900 text-white">
           <div className="p-6">
-            <h2 className="text-2xl font-bold text-blue-400">App Web Finanzas Antoni Gay</h2>
+            <h2 className="text-2xl font-bold text-blue-400">App Web Financiera</h2>
           </div>
           <nav className="mt-6 flex flex-col gap-2 px-4">
             <Link to="/" className="flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg">

@@ -82,38 +82,78 @@ const DataEntry = () => {
                 {activeTab === 'manual' && (
                     <>
                         <div className="grid grid-cols-12 gap-4 mb-6 bg-slate-50 p-4 rounded items-end">
-                            <input type="number" placeholder="Año" className="col-span-2 border p-2 rounded" value={newLine.year} onChange={e => setNewLine({ ...newLine, year: +e.target.value })} />
-                            <input type="text" placeholder="Cuenta" className="col-span-4 border p-2 rounded" value={newLine.accountName} onChange={e => setNewLine({ ...newLine, accountName: e.target.value })} />
-                            <select className="col-span-2 border p-2 rounded" value={newLine.type} onChange={e => setNewLine({ ...newLine, type: e.target.value as any })}>
-                                <option value="asset">Activo</option><option value="liability">Pasivo</option><option value="equity">Patrimonio</option><option value="revenue">Ingreso</option><option value="expense">Gasto</option>
-                            </select>
-                            <input type="number" placeholder="Monto" className="col-span-3 border p-2 rounded" value={newLine.value} onChange={e => setNewLine({ ...newLine, value: +e.target.value })} />
-                            <button onClick={handleAddRow} className="col-span-1 bg-blue-600 text-white p-2 rounded"><Plus /></button>
+                            <div className="col-span-2">
+                                <label className="text-xs font-bold text-slate-500 mb-1 block">Año</label>
+                                <input type="number" placeholder="Año" className="w-full border p-2 rounded" value={newLine.year} onChange={e => setNewLine({ ...newLine, year: +e.target.value })} />
+                            </div>
+                            <div className="col-span-4">
+                                <label className="text-xs font-bold text-slate-500 mb-1 block">Nombre de Cuenta</label>
+                                <input type="text" placeholder="Ej. Caja General" className="w-full border p-2 rounded" value={newLine.accountName} onChange={e => setNewLine({ ...newLine, accountName: e.target.value })} />
+                            </div>
+                            <div className="col-span-2">
+                                <label className="text-xs font-bold text-slate-500 mb-1 block">Tipo</label>
+                                <select className="w-full border p-2 rounded" value={newLine.type} onChange={e => setNewLine({ ...newLine, type: e.target.value as any })}>
+                                    <option value="asset">Activo</option>
+                                    <option value="liability">Pasivo</option>
+                                    <option value="equity">Patrimonio</option>
+                                    <option value="revenue">Ingreso</option>
+                                    <option value="expense">Gasto</option>
+                                </select>
+                            </div>
+                            <div className="col-span-3">
+                                <label className="text-xs font-bold text-slate-500 mb-1 block">Monto</label>
+                                {/* AQUÍ ESTÁ EL CAMBIO: value={newLine.value || ''} */}
+                                {/* Esto hace que si es 0, se vea vacío en vez de "0" */}
+                                <input
+                                    type="number"
+                                    placeholder="0.00"
+                                    className="w-full border p-2 rounded"
+                                    value={newLine.value || ''}
+                                    onChange={e => setNewLine({ ...newLine, value: +e.target.value })}
+                                />
+                            </div>
+                            <button onClick={handleAddRow} className="col-span-1 bg-blue-600 text-white p-2 rounded h-10 mt-6 flex justify-center items-center hover:bg-blue-700"><Plus size={20} /></button>
                         </div>
 
                         <table className="w-full text-sm mb-6">
-                            <thead className="bg-gray-100"><tr><th>Año</th><th>Cuenta</th><th>Monto</th><th></th></tr></thead>
+                            <thead className="bg-gray-100 text-slate-600">
+                                <tr>
+                                    <th className="px-4 py-2 text-left">Año</th>
+                                    <th className="px-4 py-2 text-left">Cuenta</th>
+                                    <th className="px-4 py-2 text-left">Tipo</th>
+                                    <th className="px-4 py-2 text-right">Monto</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
                             <tbody>
                                 {records.map(r => (
-                                    <tr key={r.id} className="border-b">
-                                        <td>{r.year}</td><td>{r.accountName}</td><td className="text-right">{r.value}</td>
-                                        <td className="text-center"><button onClick={() => handleDeleteRow(r.id)} className="text-red-500"><Trash2 size={16} /></button></td>
+                                    <tr key={r.id} className="border-b hover:bg-slate-50">
+                                        <td className="px-4 py-2">{r.year}</td>
+                                        <td className="px-4 py-2 font-medium">{r.accountName}</td>
+                                        <td className="px-4 py-2"><span className="bg-slate-200 px-2 py-1 rounded text-xs">{r.type}</span></td>
+                                        <td className="px-4 py-2 text-right font-mono">{r.value.toLocaleString()}</td>
+                                        <td className="text-center"><button onClick={() => handleDeleteRow(r.id)} className="text-red-500 hover:bg-red-50 p-1 rounded"><Trash2 size={16} /></button></td>
                                     </tr>
                                 ))}
+                                {records.length === 0 && (
+                                    <tr><td colSpan={5} className="p-8 text-center text-slate-400">No hay registros. Agrega cuentas arriba.</td></tr>
+                                )}
                             </tbody>
                         </table>
 
                         <div className="flex justify-end">
-                            <button onClick={handleSaveAndAnalyze} disabled={loading} className="bg-slate-900 text-white px-6 py-2 rounded flex items-center gap-2">
+                            <button onClick={handleSaveAndAnalyze} disabled={loading || records.length === 0} className="bg-slate-900 text-white px-6 py-2 rounded flex items-center gap-2 hover:bg-slate-800 disabled:opacity-50">
                                 {loading ? <Loader2 className="animate-spin" /> : <Save />} {loading ? 'Procesando...' : 'Analizar Todo'}
                             </button>
                         </div>
                     </>
                 )}
                 {activeTab === 'csv' && (
-                    <div className="p-12 text-center border-2 border-dashed m-6 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+                    <div className="p-12 text-center border-2 border-dashed m-6 cursor-pointer hover:bg-blue-50 transition-colors" onClick={() => fileInputRef.current?.click()}>
                         <input type="file" ref={fileInputRef} className="hidden" accept=".csv" onChange={handleFileSelect} />
-                        <p>Click para subir CSV</p>
+                        <Upload className="mx-auto text-blue-500 mb-2" size={40} />
+                        <p className="text-slate-600 font-medium">Haz clic para subir archivo CSV</p>
+                        <p className="text-xs text-slate-400 mt-1">Formato: año, cuenta, valor, tipo</p>
                     </div>
                 )}
             </div>
