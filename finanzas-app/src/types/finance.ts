@@ -13,5 +13,6 @@ export interface AnalysisResult {
     vertical: any[];
     horizontal: any[];
     conclusion: string;
-    financial_statements: any; // <--- Agregamos este campo vital
+    financial_statements: any;
+    proforma: any;
 }

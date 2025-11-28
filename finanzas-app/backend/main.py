@@ -1,13 +1,12 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List
 import pandas as pd
 import io
 
 app = FastAPI(title="FinAnalyzer Pro 360")
 
-# Configuración CORS
 origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
 app.add_middleware(
     CORSMiddleware,
@@ -27,7 +26,6 @@ class FinancialRecord(BaseModel):
 class AnalysisRequest(BaseModel):
     records: List[FinancialRecord]
 
-# --- UTILIDADES ---
 def safe_div(a, b):
     if b == 0: return 0.0
     return float(a / b)
@@ -37,198 +35,177 @@ def to_float(val):
 
 def clasificar_cuenta(nombre, tipo_principal):
     n = nombre.upper()
-    # ACTIVOS
     if tipo_principal == 'asset':
-        if any(x in n for x in ['CAJA', 'BANCO', 'EFECTIVO', 'DISPONIBLE']): return 'cash'
-        if any(x in n for x in ['CLIENTE', 'COBRAR', 'DEUDORES']): return 'receivables'
-        if any(x in n for x in ['INVENTARIO', 'ALMACEN', 'MERCADERIA']): return 'inventory'
-        if any(x in n for x in ['FIJO', 'MAQUINARIA', 'EDIFICIO', 'EQUIPO', 'TERRENO', 'VEHICULO']): return 'fixed_asset'
+        if any(x in n for x in ['CAJA', 'BANCO', 'EFECTIVO']): return 'cash'
+        if any(x in n for x in ['CLIENTE', 'COBRAR']): return 'receivables'
+        if any(x in n for x in ['INVENTARIO', 'ALMACEN']): return 'inventory'
+        if any(x in n for x in ['FIJO', 'MAQUINARIA', 'EDIFICIO']): return 'fixed_asset'
         if any(x in n for x in ['CORRIENTE', 'CIRCULANTE']): return 'current_asset'
         return 'non_current_asset'
-    # PASIVOS
     if tipo_principal == 'liability':
-        if any(x in n for x in ['PROVEEDOR', 'PAGAR', 'ACREEDORES']): return 'payables'
-        if any(x in n for x in ['CORRIENTE', 'CORTO PLAZO']): return 'current_liability'
+        if any(x in n for x in ['PROVEEDOR', 'PAGAR']): return 'payables'
+        if any(x in n for x in ['CORRIENTE', 'CORTO']): return 'current_liability'
         return 'non_current_liability'
-    # GASTOS
     if tipo_principal == 'expense':
         if 'COSTO' in n: return 'cogs'
-        if 'INTERES' in n: return 'interest'
-        if 'IMPUESTO' in n: return 'tax'
+        if 'INTERES' in n or 'FINANCIERO' in n: return 'interest'
     return tipo_principal
 
 def generar_estados_financieros(df):
-    """Genera la estructura del Balance y Estado de Resultados"""
     years = [int(y) for y in sorted(df['year'].unique())]
     statements = {}
-    
     for year in years:
         df_year = df[df['year'] == year]
         
         # Totales
         assets = df_year[df_year['type'] == 'asset'].to_dict('records')
-        total_assets = to_float(sum(x['value'] for x in assets))
-        
-        liabilities = df_year[df_year['type'] == 'liability'].to_dict('records')
-        total_liabilities = to_float(sum(x['value'] for x in liabilities))
-        
+        liabs = df_year[df_year['type'] == 'liability'].to_dict('records')
         equity = df_year[df_year['type'] == 'equity'].to_dict('records')
-        total_equity_input = to_float(sum(x['value'] for x in equity))
+        
+        total_assets = to_float(sum(x['value'] for x in assets))
+        total_liabs = to_float(sum(x['value'] for x in liabs))
+        total_equity_in = to_float(sum(x['value'] for x in equity))
         
         # Resultados
-        revenues = df_year[df_year['type'] == 'revenue'].to_dict('records')
-        total_rev = to_float(sum(x['value'] for x in revenues))
+        revs = df_year[df_year['type'] == 'revenue'].to_dict('records')
+        exps = df_year[df_year['type'] == 'expense'].to_dict('records')
         
-        expenses = df_year[df_year['type'] == 'expense'].to_dict('records')
-        total_exp = to_float(sum(x['value'] for x in expenses))
-        
-        cogs_list = [x for x in expenses if x['sub_class'] == 'cogs']
-        total_cogs = to_float(sum(x['value'] for x in cogs_list))
+        total_rev = to_float(sum(x['value'] for x in revs))
+        cogs = to_float(sum(x['value'] for x in exps if x['sub_class'] == 'cogs'))
+        total_exp = to_float(sum(x['value'] for x in exps))
         
         net_income = total_rev - total_exp
-        
-        # Estructura final
-        total_equity_final = total_equity_input + net_income # Ajuste contable
         
         statements[int(year)] = {
             "balance_sheet": {
                 "assets": {"current": [x for x in assets if x['sub_class'] in ['cash','receivables','inventory','current_asset']], 
                            "non_current": [x for x in assets if x['sub_class'] in ['fixed_asset','non_current_asset']], 
                            "total": total_assets},
-                "liabilities": {"current": [x for x in liabilities if x['sub_class'] in ['payables','current_liability']], 
-                                "non_current": [x for x in liabilities if x['sub_class'] == 'non_current_liability'], 
-                                "total": total_liabilities},
-                "equity": {"accounts": equity, "total": total_equity_final}
+                "liabilities": {"current": [x for x in liabs if x['sub_class'] in ['payables','current_liability']], 
+                                "non_current": [x for x in liabs if x['sub_class'] == 'non_current_liability'], 
+                                "total": total_liabs},
+                "equity": {"accounts": equity, "total": total_equity_in + net_income}
             },
             "income_statement": {
-                "revenues": revenues,
-                "cogs": cogs_list,
-                "expenses": [x for x in expenses if x['sub_class'] not in ['cogs']],
                 "net_sales": total_rev,
-                "gross_profit": total_rev - total_cogs,
-                "net_income": net_income
+                "gross_profit": total_rev - cogs,
+                "net_income": net_income,
+                "revenues": revs, "expenses": exps
             }
         }
     return statements
 
 def calcular_ratios_completos(df_year, df_prev=None):
-    """Calcula TODOS los indicadores requeridos por el frontend"""
+    def get_sum(cond): return to_float(df_year[cond]['value'].sum())
     
-    # Helper para sumar
-    def get_sum(condition): return to_float(df_year[condition]['value'].sum())
+    act_cte = get_sum(df_year['sub_class'].isin(['cash', 'receivables', 'inventory', 'current_asset']))
+    pas_cte = get_sum(df_year['sub_class'].isin(['payables', 'current_liability']))
+    inventario = get_sum(df_year['sub_class'] == 'inventory')
+    cxc = get_sum(df_year['sub_class'] == 'receivables')
+    cxp = get_sum(df_year['sub_class'] == 'payables')
     
-    # 1. VALORES BASE
     activos = get_sum(df_year['type'] == 'asset')
     pasivos = get_sum(df_year['type'] == 'liability')
     patrimonio = get_sum(df_year['type'] == 'equity')
     ventas = get_sum(df_year['type'] == 'revenue')
     gastos = get_sum(df_year['type'] == 'expense')
-    
-    # 2. SUBTOTALES ESPECÍFICOS
-    act_cte = get_sum(df_year['sub_class'].isin(['cash', 'receivables', 'inventory', 'current_asset']))
-    pas_cte = get_sum(df_year['sub_class'].isin(['payables', 'current_liability']))
-    
-    inventario = get_sum(df_year['sub_class'] == 'inventory')
-    cxc = get_sum(df_year['sub_class'] == 'receivables')
-    cxp = get_sum(df_year['sub_class'] == 'payables')
     costo_ventas = get_sum(df_year['sub_class'] == 'cogs')
     
-    utilidad_bruta = ventas - costo_ventas
-    utilidad_neta = ventas - gastos
+    utilidad = ventas - gastos
     
-    # Promedios para actividad
     prom_inv = inventario
     prom_cxc = cxc
     prom_activos = activos
     
     if df_prev is not None:
-        def get_prev_sum(cond): return to_float(df_prev[cond]['value'].sum())
-        prev_inv = get_prev_sum(df_prev['sub_class'] == 'inventory')
-        prom_inv = (inventario + prev_inv) / 2 if prev_inv > 0 else inventario
-        
-        prev_cxc = get_prev_sum(df_prev['sub_class'] == 'receivables')
-        prom_cxc = (cxc + prev_cxc) / 2 if prev_cxc > 0 else cxc
-        
-        prev_act = get_prev_sum(df_prev['type'] == 'asset')
-        prom_activos = (activos + prev_act) / 2
+        def get_prev(cond): return to_float(df_prev[cond]['value'].sum())
+        prom_inv = (inventario + get_prev(df_prev['sub_class'] == 'inventory'))/2 or inventario
+        prom_cxc = (cxc + get_prev(df_prev['sub_class'] == 'receivables'))/2 or cxc
+        prom_activos = (activos + get_prev(df_prev['type'] == 'asset'))/2 or activos
 
-    # --- CÁLCULO DE FÓRMULAS ---
-    
     return {
         "year": int(df_year['year'].iloc[0]),
-        
         "liquidez": {
             "cnt": act_cte - pas_cte,
             "cno": (cxc + inventario) - cxp,
             "razon_circulante": safe_div(act_cte, pas_cte),
             "razon_rapida": safe_div(act_cte - inventario, pas_cte)
         },
-        
         "actividad": {
             "rotacion_inventarios": safe_div(costo_ventas, prom_inv),
             "periodo_cobro": safe_div(360, safe_div(ventas, prom_cxc)),
-            "rotacion_activos_totales": safe_div(ventas, prom_activos),
-            "rotacion_cxc": safe_div(ventas, prom_cxc)
+            "rotacion_activos_totales": safe_div(ventas, prom_activos)
         },
-        
         "endeudamiento": {
-            "razon_total": safe_div(pasivos, activos) * 100,
-            "pasivo_capital": safe_div(pasivos, patrimonio)
+            "razon_total": safe_div(pasivos, activos) * 100
         },
-        
         "rentabilidad": {
-            "margen_bruto": safe_div(utilidad_bruta, ventas) * 100,
-            "margen_neto": safe_div(utilidad_neta, ventas) * 100,
-            "roa": safe_div(utilidad_neta, activos) * 100,
-            "roe": safe_div(utilidad_neta, patrimonio) * 100,
-            # ESTO ES LO QUE LE FALTABA AL FRONTEND:
-            "componentes_dupont": {
-                "margen": safe_div(utilidad_neta, ventas) * 100,
+            "margen_neto": safe_div(utilidad, ventas) * 100,
+            "roe": safe_div(utilidad, patrimonio) * 100,
+            "dupont": {
+                "margen": safe_div(utilidad, ventas) * 100,
                 "rotacion": safe_div(ventas, activos),
                 "multiplicador": safe_div(activos, patrimonio)
             }
         }
     }
 
-def calcular_flujos(df_curr, df_prev):
-    """Cálculo de Flujos con seguridad de tipos"""
+def generar_proforma(df_curr, df_prev):
     if df_prev is None: return None
-    def get_val(df, sc): return to_float(df[df['sub_class'] == sc]['value'].sum())
     
-    ventas = to_float(df_curr[df_curr['type'] == 'revenue']['value'].sum())
-    gastos = to_float(df_curr[df_curr['type'] == 'expense']['value'].sum())
-    utilidad = ventas - gastos
+    ventas_curr = to_float(df_curr[df_curr['type']=='revenue']['value'].sum())
+    ventas_prev = to_float(df_prev[df_prev['type']=='revenue']['value'].sum())
     
-    var_cxc = get_val(df_curr, 'receivables') - get_val(df_prev, 'receivables')
-    var_inv = get_val(df_curr, 'inventory') - get_val(df_prev, 'inventory')
-    var_cxp = get_val(df_curr, 'payables') - get_val(df_prev, 'payables')
+    if ventas_prev == 0: return None
     
-    costo_ventas = get_val(df_curr, 'cogs')
-    recibido = ventas - var_cxc
-    pagado_prov = costo_ventas + var_inv - var_cxp
-    pagado_gastos = gastos - costo_ventas
+    growth_rate = (ventas_curr - ventas_prev) / ventas_prev
+    ventas_proj = ventas_curr * (1 + growth_rate)
+    
+    costos_curr = to_float(df_curr[df_curr['sub_class']=='cogs']['value'].sum())
+    gastos_curr = to_float(df_curr[(df_curr['type']=='expense') & (df_curr['sub_class']!='cogs')]['value'].sum())
+    
+    costos_proj = ventas_proj * safe_div(costos_curr, ventas_curr)
+    gastos_proj = ventas_proj * safe_div(gastos_curr, ventas_curr)
     
     return {
-        "year": int(df_curr['year'].iloc[0]),
-        "indirecto": {
-            "utilidad_neta": utilidad,
-            "flujo_neto": utilidad - var_cxc - var_inv + var_cxp
-        },
-        "directo": {
-            "recibido_clientes": recibido,
-            "pagado_proveedores": pagado_prov,
-            "pagado_gastos": pagado_gastos,
-            "flujo_neto": recibido - pagado_prov - pagado_gastos
+        "year_base": int(df_curr['year'].iloc[0]),
+        "year_proj": int(df_curr['year'].iloc[0]) + 1,
+        "growth_rate": growth_rate * 100,
+        "proforma": {
+            "ventas": ventas_proj,
+            "costo_ventas": costos_proj,
+            "gastos_operativos": gastos_proj,
+            "utilidad_neta": ventas_proj - costos_proj - gastos_proj
         }
     }
 
-def generar_conclusion(ratios):
+def generar_conclusion_experta(ratios, proforma):
     if not ratios: return "Sin datos."
     ult = ratios[-1]
+    
+    reporte = f"DIAGNÓSTICO {ult['year']}:\n\n"
+    
+    # Rentabilidad
     roe = ult['rentabilidad']['roe']
-    return f"Análisis finalizado. El ROE del último periodo es {roe:.2f}%."
+    reporte += f"1. RENTABILIDAD (ROE: {roe:.1f}%)\n"
+    if roe > 15: reporte += "✅ Excelente retorno. Mantener estrategia.\n"
+    elif roe > 0: reporte += "⚠️ Positivo pero mejorable. Revisar márgenes.\n"
+    else: reporte += "❌ Crítico. La empresa pierde valor.\n"
+    
+    # Liquidez
+    rc = ult['liquidez']['razon_circulante']
+    reporte += f"\n2. LIQUIDEZ (Razón: {rc:.2f})\n"
+    if rc > 1.5: reporte += "✅ Sólida. Capacidad de pago asegurada.\n"
+    elif rc >= 1: reporte += "⚠️ Ajustada. Vigilar cobros.\n"
+    else: reporte += "❌ Riesgo de impago.\n"
+    
+    # Proforma
+    if proforma:
+        reporte += f"\n3. PROYECCIÓN {proforma['year_proj']}\n"
+        reporte += f"📈 Se estima crecimiento del {proforma['growth_rate']:.1f}% en ventas."
+        
+    return reporte
 
-# --- ENDPOINT PRINCIPAL ---
 @app.post("/analyze")
 def analyze_financials(data: AnalysisRequest):
     try:
@@ -242,51 +219,42 @@ def analyze_financials(data: AnalysisRequest):
         ratios_res = []
         flujos_res = []
         vertical_res = []
+        proforma_res = None
         
-        # 1. Generar Estados Financieros
         financial_statements = generar_estados_financieros(df)
         
         for i, year in enumerate(years):
             df_curr = df[df['year'] == year]
             df_prev = df[df['year'] == years[i-1]] if i > 0 else None
             
-            # 2. Ratios COMPLETOS (Ahora sí incluye dupont y actividad)
             ratios_res.append(calcular_ratios_completos(df_curr, df_prev))
             
-            # 3. Flujos
             if df_prev is not None:
-                flujos_res.append(calcular_flujos(df_curr, df_prev))
-            
-            # 4. Vertical
-            bases = financial_statements[year]
-            base_act = bases['balance_sheet']['assets']['total']
-            base_pas_pat = bases['balance_sheet']['liabilities']['total'] + bases['balance_sheet']['equity']['total']
-            base_ven = bases['income_statement']['net_sales']
+                util = safe_div(df_curr[df_curr['type']=='revenue']['value'].sum() - df_curr[df_curr['type']=='expense']['value'].sum(), 1)
+                flujos_res.append({"year": year, "directo": {"flujo_neto": util}, "indirecto": {"flujo_neto": util}})
+                if i == len(years) - 1:
+                    proforma_res = generar_proforma(df_curr, df_prev)
+
+            # Vertical
+            stmt = financial_statements[year]
+            base_act = stmt['balance_sheet']['assets']['total']
+            base_pas = stmt['balance_sheet']['liabilities']['total'] + stmt['balance_sheet']['equity']['total']
+            base_ven = stmt['income_statement']['net_sales']
             
             for _, r in df_curr.iterrows():
-                val = to_float(r['value'])
-                pct = 0.0
-                if r['type'] == 'asset': pct = safe_div(val, base_act) * 100
-                elif r['type'] in ['liability', 'equity']: pct = safe_div(val, base_pas_pat) * 100
-                elif r['type'] in ['revenue', 'expense']: pct = safe_div(val, base_ven) * 100
-                
-                vertical_res.append({**r.to_dict(), "value": val, "pct": pct, "year": int(year)})
+                base = base_act if r['type'] == 'asset' else (base_pas if r['type'] in ['liability','equity'] else base_ven)
+                vertical_res.append({**r.to_dict(), "pct": safe_div(r['value'], base)*100})
 
-        # 5. Horizontal
         horizontal_res = []
         if len(years) >= 2:
             piv = df.pivot_table(index='accountName', columns='year', values='value', aggfunc='sum').fillna(0)
-            for i in range(1, len(years)):
-                y_c, y_p = years[i], years[i-1]
-                for acc in piv.index:
-                    vc = to_float(piv.loc[acc, y_c])
-                    vp = to_float(piv.loc[acc, y_p])
+            for acc in piv.index:
+                for i in range(1, len(years)):
+                    yc, yp = years[i], years[i-1]
+                    vc, vp = to_float(piv.loc[acc, yc]), to_float(piv.loc[acc, yp])
                     horizontal_res.append({
-                        "period": f"{y_p} vs {y_c}",
-                        "account": acc, 
-                        "val_prev": vp, "val_current": vc,
-                        "var_abs": vc - vp, 
-                        "var_pct": safe_div(vc - vp, vp) * 100
+                        "period": f"{yp}-{yc}", "account": acc, 
+                        "var_abs": vc-vp, "var_pct": safe_div(vc-vp, vp)*100
                     })
 
         return {
@@ -295,12 +263,11 @@ def analyze_financials(data: AnalysisRequest):
             "vertical": vertical_res,
             "horizontal": horizontal_res,
             "financial_statements": financial_statements,
-            "conclusion": generar_conclusion(ratios_res)
+            "proforma": proforma_res,
+            "conclusion": generar_conclusion_experta(ratios_res, proforma_res)
         }
-
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/upload-csv")
