@@ -1,20 +1,64 @@
 import React, { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useFinancial } from '../context/FinancialContext';
-import { BrainCircuit, TrendingUp, ArrowRightLeft } from 'lucide-react';
+// Importamos iconos adicionales y componentes de Recharts
+import { BrainCircuit, TrendingUp, ArrowRightLeft, PieChart as PieIcon, BarChart3, Activity } from 'lucide-react';
+import {
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+    LineChart, Line, ComposedChart, Area, AreaChart, PieChart, Pie, Cell
+} from 'recharts';
 
 const Analysis = () => {
     const { analysisData } = useFinancial();
-    const [activeTab, setActiveTab] = useState('balance');
+    // Cambiamos el default a 'dashboard' para ver los gráficos primero, o puedes dejarlo en 'balance'
+    const [activeTab, setActiveTab] = useState('dashboard');
 
     if (!analysisData || !analysisData.ratios) return <Navigate to="/entry" replace />;
 
     const { ratios, vertical, horizontal, conclusion, financial_statements, proforma, flujo_efectivo } = analysisData;
     const years = Object.keys(financial_statements).map(Number).sort();
     const lastYear = years[years.length - 1];
-    const fmt = (n: number) => n?.toLocaleString('es-NI', { style: 'currency', currency: 'NIO' });
+    const fmt = (n: number) => n?.toLocaleString('es-NI', { style: 'currency', currency: 'NIO', maximumFractionDigits: 0 });
 
-    // Agrupación para tabla V/H
+    // --- LÓGICA DE GRÁFICOS (NUEVO) ---
+    const chartData = years.map(year => {
+        const bs = financial_statements[year].balance_sheet;
+        const is = financial_statements[year].income_statement;
+        const ratio = ratios.find((r: any) => r.year === year);
+
+        return {
+            year,
+            ventas: is.net_sales,
+            utilidadNeta: is.net_income,
+            utilidadBruta: is.gross_profit,
+            activoCorriente: bs.assets.current.total,
+            pasivoCorriente: bs.liabilities.current.total,
+            roe: ratio?.rentabilidad.roe || 0,
+            roa: ratio?.rentabilidad.roa || 0,
+            margenNeto: ratio?.rentabilidad.margen_neto || 0,
+            liquidez: ratio?.liquidez.razon_circulante || 0,
+            cnt: ratio?.liquidez.cnt || 0,
+            dupontMargen: ratio?.rentabilidad.dupont.margen || 0,
+            dupontRotacion: ratio?.rentabilidad.dupont.rotacion || 0,
+            dupontApalancamiento: ratio?.rentabilidad.dupont.multiplicador || 0
+        };
+    });
+
+    const lastBs = financial_statements[lastYear].balance_sheet;
+    const assetComposition = [
+        { name: 'Activo Cte.', value: lastBs.assets.current.total },
+        { name: 'Activo No Cte.', value: lastBs.assets.non_current.total },
+    ];
+    const fundingComposition = [
+        { name: 'Pasivo Cte.', value: lastBs.liabilities.current.total },
+        { name: 'Pasivo No Cte.', value: lastBs.liabilities.non_current.total },
+        { name: 'Patrimonio', value: lastBs.equity.total },
+    ];
+    const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
+
+    // --- FIN LÓGICA GRÁFICOS ---
+
+    // Agrupación para tabla V/H (Tu código original)
     const groupedVertical: Record<string, Record<number, number>> = {};
     vertical.forEach((v: any) => {
         if (!groupedVertical[v.accountName]) groupedVertical[v.accountName] = {};
@@ -38,6 +82,23 @@ const Analysis = () => {
         </div>
     );
 
+    const CustomTooltip = ({ active, payload, label, formatter = fmt }: any) => {
+        if (active && payload && payload.length) {
+            return (
+                <div className="bg-white p-3 border border-slate-200 shadow-lg rounded text-xs opacity-95 z-50">
+                    <p className="font-bold mb-2 text-slate-700">{label}</p>
+                    {payload.map((p: any, i: number) => (
+                        <p key={i} style={{ color: p.color }} className="flex justify-between gap-4">
+                            <span>{p.name}:</span>
+                            <span className="font-mono font-bold">{formatter ? formatter(p.value) : p.value}</span>
+                        </p>
+                    ))}
+                </div>
+            );
+        }
+        return null;
+    };
+
     return (
         <div className="p-8 pb-20 space-y-6 bg-slate-50 min-h-screen">
             <header className="flex justify-between items-center mb-6">
@@ -51,6 +112,7 @@ const Analysis = () => {
 
             <div className="flex gap-2 overflow-x-auto pb-2">
                 {[
+                    { id: 'dashboard', label: 'Gráficos Gerenciales' }, // NUEVA PESTAÑA
                     { id: 'balance', label: 'Balance General' },
                     { id: 'income', label: 'Estado Resultados' },
                     { id: 'cashflow', label: 'Flujo Efectivo' },
@@ -61,9 +123,9 @@ const Analysis = () => {
                     <button
                         key={t.id}
                         onClick={() => setActiveTab(t.id)}
-                        className={`px-5 py-2.5 rounded-lg font-medium transition-all ${activeTab === t.id
-                                ? 'bg-indigo-600 text-white shadow-md'
-                                : 'bg-white text-slate-600 hover:bg-slate-100 border'
+                        className={`px-5 py-2.5 rounded-lg font-medium transition-all whitespace-nowrap ${activeTab === t.id
+                            ? 'bg-indigo-600 text-white shadow-md'
+                            : 'bg-white text-slate-600 hover:bg-slate-100 border'
                             }`}
                     >
                         {t.label}
@@ -71,7 +133,125 @@ const Analysis = () => {
                 ))}
             </div>
 
-            {/* BALANCE GENERAL */}
+            {/* --- APARTADO DE GRÁFICOS (NUEVO BLOQUE) --- */}
+            {activeTab === 'dashboard' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 animate-in fade-in">
+
+                    {/* Gráfico 1: Ventas y Utilidades */}
+                    <div className="bg-white p-6 rounded-xl shadow border border-slate-200 col-span-1 md:col-span-2">
+                        <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><BarChart3 size={18} /> Evolución de Resultados</h3>
+                        <div className="h-72">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <ComposedChart data={chartData}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                    <XAxis dataKey="year" />
+                                    <YAxis tickFormatter={(val) => `${(val / 1000000).toFixed(0)}M`} />
+                                    <Tooltip content={<CustomTooltip />} />
+                                    <Legend />
+                                    <Bar dataKey="ventas" name="Ventas Netas" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={40} />
+                                    <Line type="monotone" dataKey="utilidadNeta" name="Utilidad Neta" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} />
+                                </ComposedChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+
+                    {/* Gráfico 2: Estructura Activos */}
+                    <div className="bg-white p-6 rounded-xl shadow border border-slate-200">
+                        <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><PieIcon size={18} /> Estructura Activos ({lastYear})</h3>
+                        <div className="h-72">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie data={assetComposition} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                                        {assetComposition.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index]} />)}
+                                    </Pie>
+                                    <Tooltip formatter={fmt} />
+                                    <Legend verticalAlign="bottom" height={36} />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+
+                    {/* Gráfico 3: Rentabilidad */}
+                    <div className="bg-white p-6 rounded-xl shadow border border-slate-200 col-span-1 md:col-span-2">
+                        <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><TrendingUp size={18} /> Tendencia de Rentabilidad (%)</h3>
+                        <div className="h-72">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={chartData}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                    <XAxis dataKey="year" />
+                                    <YAxis />
+                                    <Tooltip content={<CustomTooltip formatter={(v: number) => v.toFixed(2) + '%'} />} />
+                                    <Legend />
+                                    <Line type="monotone" dataKey="roe" name="ROE" stroke="#8884d8" strokeWidth={3} />
+                                    <Line type="monotone" dataKey="roa" name="ROA" stroke="#82ca9d" strokeWidth={2} />
+                                    <Line type="monotone" dataKey="margenNeto" name="Margen Neto" stroke="#ff7300" strokeWidth={2} />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+
+                    {/* Gráfico 4: Financiamiento */}
+                    <div className="bg-white p-6 rounded-xl shadow border border-slate-200">
+                        <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><PieIcon size={18} /> Financiamiento ({lastYear})</h3>
+                        <div className="h-72">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie data={fundingComposition} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                                        {fundingComposition.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index + 2]} />)}
+                                    </Pie>
+                                    <Tooltip formatter={fmt} />
+                                    <Legend verticalAlign="bottom" height={36} />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+
+                    {/* Gráfico 5: DuPont */}
+                    <div className="bg-white p-6 rounded-xl shadow border border-slate-200 col-span-1 md:col-span-3">
+                        <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Activity size={18} /> Análisis DuPont (Desglose del ROE)</h3>
+                        <div className="grid md:grid-cols-3 gap-4 h-64">
+                            <div className="h-full">
+                                <p className="text-center text-xs text-slate-500 mb-2">1. Margen Neto (%)</p>
+                                <ResponsiveContainer width="100%" height="90%">
+                                    <BarChart data={chartData}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                        <XAxis dataKey="year" />
+                                        <YAxis />
+                                        <Tooltip cursor={{ fill: 'transparent' }} content={<CustomTooltip formatter={(v: number) => v.toFixed(2) + '%'} />} />
+                                        <Bar dataKey="dupontMargen" fill="#8884d8" radius={[4, 4, 0, 0]} name="Margen" />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+                            <div className="h-full border-l border-slate-100 pl-4">
+                                <p className="text-center text-xs text-slate-500 mb-2">2. Rotación Activos (veces)</p>
+                                <ResponsiveContainer width="100%" height="90%">
+                                    <LineChart data={chartData}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                        <XAxis dataKey="year" />
+                                        <YAxis domain={['auto', 'auto']} />
+                                        <Tooltip content={<CustomTooltip formatter={(v: number) => v.toFixed(2) + 'x'} />} />
+                                        <Line type="step" dataKey="dupontRotacion" stroke="#82ca9d" strokeWidth={3} name="Rotación" />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            </div>
+                            <div className="h-full border-l border-slate-100 pl-4">
+                                <p className="text-center text-xs text-slate-500 mb-2">3. Apalancamiento (veces)</p>
+                                <ResponsiveContainer width="100%" height="90%">
+                                    <AreaChart data={chartData}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                        <XAxis dataKey="year" />
+                                        <YAxis domain={['auto', 'auto']} />
+                                        <Tooltip content={<CustomTooltip formatter={(v: number) => v.toFixed(2) + 'x'} />} />
+                                        <Area type="monotone" dataKey="dupontApalancamiento" stroke="#ffc658" fill="#ffc658" name="Apalancamiento" />
+                                    </AreaChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* BALANCE GENERAL (Tu código original) */}
             {activeTab === 'balance' && (
                 <div className="grid md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-bottom-4">
                     {years.map(year => {
@@ -112,7 +292,7 @@ const Analysis = () => {
                 </div>
             )}
 
-            {/* ESTADO DE RESULTADOS */}
+            {/* ESTADO DE RESULTADOS (Tu código original) */}
             {activeTab === 'income' && (
                 <div className="bg-white p-6 rounded-xl shadow border overflow-x-auto animate-in fade-in">
                     <table className="w-full text-sm min-w-[600px]">
@@ -136,7 +316,7 @@ const Analysis = () => {
                 </div>
             )}
 
-            {/* FLUJO DE EFECTIVO */}
+            {/* FLUJO DE EFECTIVO (Tu código original) */}
             {activeTab === 'cashflow' && (
                 <div className="space-y-8 animate-in fade-in">
                     {flujo_efectivo && flujo_efectivo.length > 0 ? (
@@ -232,7 +412,7 @@ const Analysis = () => {
                 </div>
             )}
 
-            {/* RATIOS */}
+            {/* RATIOS (Tu código original) */}
             {activeTab === 'ratios' && (
                 <div className="space-y-8 animate-in fade-in">
                     {ratios.map((r: any) => (
@@ -307,7 +487,7 @@ const Analysis = () => {
                 </div>
             )}
 
-            {/* HORIZONTAL */}
+            {/* HORIZONTAL (Tu código original) */}
             {activeTab === 'horizontal' && (
                 <div className="bg-white p-6 rounded-xl shadow border overflow-auto animate-in fade-in">
                     <h3 className="font-bold mb-4">Análisis Horizontal (Base: {years[0]})</h3>
@@ -342,7 +522,7 @@ const Analysis = () => {
                 </div>
             )}
 
-            {/* VERTICAL */}
+            {/* VERTICAL (Tu código original) */}
             {activeTab === 'vertical' && (
                 <div className="bg-white p-6 rounded-xl shadow border overflow-auto animate-in fade-in">
                     <h3 className="font-bold mb-4">Análisis Vertical (Porcentaje Integral)</h3>
@@ -369,7 +549,7 @@ const Analysis = () => {
                 </div>
             )}
 
-            {/* PROFORMA */}
+            {/* PROFORMA (Tu código original) */}
             {activeTab === 'ratios' && proforma && (
                 <div className="mt-8 bg-purple-50 p-6 rounded-xl border border-purple-200">
                     <h3 className="text-lg font-bold text-purple-800 flex items-center gap-2 mb-4">
